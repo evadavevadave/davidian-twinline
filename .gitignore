@@ -1,0 +1,12 @@
+build/
+build-test/
+*.obj
+*.exe
+*.dll
+*.lib
+*.exp
+*.pdb
+*.bmp
+
+# Reference image, kept locally only
+doubler_layout.png

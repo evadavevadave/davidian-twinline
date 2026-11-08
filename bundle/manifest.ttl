@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Davidian
+@prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix ui:   <http://lv2plug.in/ns/extensions/ui#> .
+
+<urn:davidian:twinline>
+	a lv2:Plugin ;
+	lv2:binary <twinline.dll> ;
+	rdfs:seeAlso <twinline.ttl> ;
+	ui:ui <urn:davidian:twinline#ui> .
+
+<urn:davidian:twinline#ui>
+	a ui:WindowsUI ;
+	ui:binary <twinline_ui.dll> ;
+	lv2:requiredFeature ui:parent ;
+	lv2:optionalFeature ui:resize , ui:idleInterface ;
+	lv2:extensionData ui:idleInterface .
