@@ -23,12 +23,47 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <xmmintrin.h>
+
+#if defined(__SSE__) || defined(_M_X64) || defined(_M_IX86_FP) || defined(__x86_64__)
+#    include <xmmintrin.h>
+#    define FTZ_SSE 1
+#endif
 
 #include "lv2_abi.h"
 #include "ports.h"
 
 #define PI 3.14159265358979323846
+
+/* Flush denormals to zero during run(), so the filter tails can't slow the CPU down.
+ * x86: MXCSR FTZ + DAZ. ARM64: FPCR.FZ. Elsewhere: no-op (the tail just decays normally). */
+typedef uint64_t FpState;
+
+static FpState fp_denormals_off(void)
+{
+#if defined(FTZ_SSE)
+    const unsigned csr = _mm_getcsr();
+    _mm_setcsr(csr | 0x8040);
+    return csr;
+#elif defined(__aarch64__) && (defined(__GNUC__) || defined(__clang__))
+    uint64_t fpcr;
+    __asm__ __volatile__("mrs %0, fpcr" : "=r"(fpcr));
+    __asm__ __volatile__("msr fpcr, %0" : : "r"(fpcr | (1ull << 24)));
+    return fpcr;
+#else
+    return 0;
+#endif
+}
+
+static void fp_restore(FpState s)
+{
+#if defined(FTZ_SSE)
+    _mm_setcsr((unsigned)s);
+#elif defined(__aarch64__) && (defined(__GNUC__) || defined(__clang__))
+    __asm__ __volatile__("msr fpcr, %0" : : "r"(s));
+#else
+    (void)s;
+#endif
+}
 
 #define BBD_CLOCKS 2048              /* 4096 stages, two per clock period */
 #define CLOCK_C 100e-12
@@ -70,7 +105,7 @@ static void bq_onepole_lp(Biquad *f, double fs, double fc)
     bq_set(f, k, k, 0.0, 1.0 + k, k - 1.0, 0.0);
 }
 
-static __inline double bq_run(Biquad *f, double x)
+static double bq_run(Biquad *f, double x)
 {
     double y = f->b0 * x + f->z1;
     f->z1 = f->b1 * x - f->a1 * y + f->z2;
@@ -187,7 +222,7 @@ static void activate(LV2_Handle h) { reset_state((Plugin *)h); }
 static void run(LV2_Handle h, uint32_t n)
 {
     Plugin *p = (Plugin *)h;
-    const unsigned csr = _mm_getcsr();
+    const FpState fp = fp_denormals_off();
     const double target_gain = level_to_gain(*p->port_level);
     const double target_wet = blend_to_wet(*p->port_blend);
     const double target_fade = engaged(p);
@@ -196,8 +231,6 @@ static void run(LV2_Handle h, uint32_t n)
     const double phase_inc = (1.0 / (4.4 * r * CLOCK_C)) / p->fs_os;
     const int os = p->os;
     uint32_t i;
-
-    _mm_setcsr(csr | 0x8040); /* flush denormals to zero */
 
     for (i = 0; i < n; ++i) {
         double x, wet_in, wet = 0.0;
@@ -255,7 +288,7 @@ static void run(LV2_Handle h, uint32_t n)
             + (x * (1.0 - p->wet_mix) + wet * p->wet_mix) * p->fade);
     }
 
-    _mm_setcsr(csr);
+    fp_restore(fp);
 }
 
 static void deactivate(LV2_Handle h) { (void)h; }

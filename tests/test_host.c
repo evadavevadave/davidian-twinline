@@ -2,12 +2,22 @@
  * Copyright (C) 2026 Davidian
  * The LV2 interface declarations in this file follow the ISC-licensed LV2 headers;
  * see LICENSE-LV2 for their copyright and permission notice. */
-/* Offline checks for the built plugin DLL. Usage: test_host <dll> */
+/* Offline checks for the built plugin library (.dll, .so or .dylib).
+ * Usage: test_host <plugin library> */
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <windows.h>
+#include <time.h>
+#ifdef _WIN32
+#    include <windows.h>
+#    define lib_open(p) ((void *)LoadLibraryA(p))
+#    define lib_sym(l, s) ((void *)GetProcAddress((HMODULE)(l), s))
+#else
+#    include <dlfcn.h>
+#    define lib_open(p) dlopen(p, RTLD_NOW | RTLD_LOCAL)
+#    define lib_sym(l, s) dlsym(l, s)
+#endif
 
 #define PI 3.14159265358979323846
 
@@ -94,18 +104,21 @@ int main(int argc, char **argv)
 {
     static const double rates[] = { 44100, 48000, 88200, 96000, 192000 };
     static const double freqs[] = { 100, 500, 1000, 3000, 5000, 7000, 10000, 15000 };
-    HMODULE lib;
+    void *lib;
     const LV2_Descriptor *(*get)(uint32_t);
     const int n = 192000 * 2;
     float *in = malloc(sizeof(float) * n), *out = malloc(sizeof(float) * n),
           *out2 = malloc(sizeof(float) * n);
     int i, r;
 
-    if (argc < 2 || !(lib = LoadLibraryA(argv[1]))) {
-        printf("cannot load DLL (error %lu)\n", GetLastError());
+    if (argc < 2 || !(lib = lib_open(argv[1]))) {
+        printf("cannot load the plugin library %s\n", argc < 2 ? "(none given)" : argv[1]);
+#ifndef _WIN32
+        if (argc >= 2) printf("  %s\n", dlerror());
+#endif
         return 2;
     }
-    get = (const LV2_Descriptor *(*)(uint32_t))GetProcAddress(lib, "lv2_descriptor");
+    *(void **)&get = lib_sym(lib, "lv2_descriptor");
     if (!get || !(D = get(0))) { printf("no lv2_descriptor export\n"); return 2; }
     printf("URI: %s\n", D->URI);
     check("descriptor index 1 is NULL", get(1) == NULL);
@@ -193,16 +206,15 @@ int main(int argc, char **argv)
         check("tail decays after input stops", db(tail) < -80);
         /* A knob sweep shouldn't blow up either. */
         {
-            LARGE_INTEGER t0, t1, fq;
+            clock_t t0, t1;
             int sn2 = 48000 * 8;
             float *big = malloc(sizeof(float) * sn2), *bigo = malloc(sizeof(float) * sn2);
             for (j = 0; j < sn2; ++j) big[j] = (float)(0.3 * sin(2 * PI * 220 * j / 48000.0));
-            QueryPerformanceFrequency(&fq);
-            QueryPerformanceCounter(&t0);
+            t0 = clock();
             render(48000, 6, 0.75f, 0, big, bigo, sn2, 256);
-            QueryPerformanceCounter(&t1);
+            t1 = clock();
             printf("  CPU: %.2f%% of one core at 48 kHz\n",
-                   100.0 * (double)(t1.QuadPart - t0.QuadPart) / fq.QuadPart / 8.0);
+                   100.0 * (double)(t1 - t0) / CLOCKS_PER_SEC / 8.0);
             free(big); free(bigo);
         }
     }

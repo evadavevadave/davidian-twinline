@@ -1,8 +1,11 @@
 build/
 build-test/
 *.obj
+*.o
 *.exe
 *.dll
+*.so
+*.dylib
 *.lib
 *.exp
 *.pdb

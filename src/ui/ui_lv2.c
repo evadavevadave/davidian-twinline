@@ -3,8 +3,14 @@
  * The LV2 interface declarations in this file follow the ISC-licensed LV2 headers;
  * see LICENSE-LV2 for their copyright and permission notice. */
 /* LV2 GUI for the Davidian Twinline: the LV2 UI entry points plus a thin window layer
- * for Win32 (ui:WindowsUI) and X11 (ui:X11UI). Everything else is in panel.h, which knows
- * nothing about windows. The UI ABI is declared here so no LV2 SDK is needed. */
+ * for Win32 (ui:WindowsUI), X11 (ui:X11UI) and macOS Cocoa (ui:CocoaUI). Everything else
+ * is in panel.h, which knows nothing about windows. The UI ABI is declared here so no LV2
+ * SDK is needed. On macOS this file is compiled as Objective-C (clang -x objective-c,
+ * without ARC). */
+#if defined(__APPLE__)
+#    import <Cocoa/Cocoa.h> /* before panel.h so its names can't clash with the system headers */
+#endif
+
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -166,7 +172,7 @@ static int window_open(UI* ui, void* parent)
         return 0;
     }
     SetWindowLongPtrA(ui->hwnd, GWLP_USERDATA, (LONG_PTR)ui);
-    SetTimer(ui->hwnd, 1, 33, NULL); /* picks up host updates such as the opto lamps */
+    SetTimer(ui->hwnd, 1, 33, NULL); /* picks up host updates */
     return 1;
 }
 
@@ -320,8 +326,171 @@ static int window_idle(UI* ui)
     return 0;
 }
 
+/* ---- Window layer: macOS Cocoa ---- */
+#elif defined(__APPLE__)
+
+#    if __has_feature(objc_arc)
+#        error "Build ui_lv2.c without ARC (-fno-objc-arc); it manages retain counts itself."
+#    endif
+
+struct UI {
+    Panel panel;
+    LV2UI_Write_Function write;
+    LV2UI_Controller controller;
+    NSView* view;
+    NSTimer* timer;
+};
+
+/* Objective-C class names are global in the host process, so this one carries the
+ * brand and model to stay unique among other plugins' GUIs. */
+@interface DavidianTwinlineView : NSView {
+@public
+    UI* ui;
+    float wheel_acc;
+}
+@end
+
+@implementation DavidianTwinlineView
+
+- (BOOL)isFlipped { return YES; } /* top-left origin, like the panel */
+- (BOOL)acceptsFirstMouse:(NSEvent*)e { (void)e; return YES; }
+- (BOOL)acceptsFirstResponder { return YES; }
+
+- (void)drawRect:(NSRect)dirty
+{
+    CGContextRef ctx;
+    CGColorSpaceRef cs;
+    CGDataProviderRef dp;
+    CGImageRef img;
+    (void)dirty;
+    if (!ui)
+        return;
+    if (ui->panel.dirty)
+        panel_draw(&ui->panel);
+    ctx = [[NSGraphicsContext currentContext] CGContext];
+    cs = CGColorSpaceCreateDeviceRGB();
+    dp = CGDataProviderCreateWithData(NULL, ui->panel.px, (size_t)PANEL_W * PANEL_H * 4, NULL);
+    /* Panel pixels are 0x00RRGGBB words: little-endian, alpha byte skipped. */
+    img = CGImageCreate(PANEL_W, PANEL_H, 8, 32, (size_t)PANEL_W * 4, cs,
+                        kCGBitmapByteOrder32Little | kCGImageAlphaNoneSkipFirst, dp, NULL, false,
+                        kCGRenderingIntentDefault);
+    if (img) {
+        /* The view is flipped; flip back so the image isn't drawn upside down. */
+        CGContextSaveGState(ctx);
+        CGContextTranslateCTM(ctx, 0, PANEL_H);
+        CGContextScaleCTM(ctx, 1, -1);
+        CGContextDrawImage(ctx, CGRectMake(0, 0, PANEL_W, PANEL_H), img);
+        CGContextRestoreGState(ctx);
+        CGImageRelease(img);
+    }
+    CGDataProviderRelease(dp);
+    CGColorSpaceRelease(cs);
+}
+
+- (NSPoint)panelPoint:(NSEvent*)e
+{
+    return [self convertPoint:[e locationInWindow] fromView:nil];
+}
+
+- (void)redrawIfDirty
+{
+    if (ui && ui->panel.dirty)
+        [self setNeedsDisplay:YES];
+}
+
+- (void)tick:(NSTimer*)t
+{
+    (void)t;
+    [self redrawIfDirty]; /* picks up host updates */
+}
+
+- (void)mouseDown:(NSEvent*)e
+{
+    NSPoint p = [self panelPoint:e];
+    if (!ui)
+        return;
+    panel_mouse_down(&ui->panel, (float)p.x, (float)p.y, [e clickCount] == 2);
+    [self redrawIfDirty];
+}
+
+- (void)mouseDragged:(NSEvent*)e
+{
+    NSPoint p = [self panelPoint:e];
+    if (!ui)
+        return;
+    panel_mouse_move(&ui->panel, (float)p.x, (float)p.y, ([e modifierFlags] & NSEventModifierFlagShift) != 0);
+    [self redrawIfDirty];
+}
+
+- (void)mouseUp:(NSEvent*)e
+{
+    (void)e;
+    if (!ui)
+        return;
+    panel_mouse_up(&ui->panel);
+    [self redrawIfDirty];
+}
+
+- (void)scrollWheel:(NSEvent*)e
+{
+    NSPoint p = [self panelPoint:e];
+    float d = (float)[e scrollingDeltaY];
+    if (!ui)
+        return;
+    /* Trackpads send many small precise deltas: gather them into whole wheel steps. */
+    wheel_acc += [e hasPreciseScrollingDeltas] ? d / 10.0f : d;
+    while (wheel_acc >= 1.0f || wheel_acc <= -1.0f) {
+        const float step = wheel_acc > 0 ? 1.0f : -1.0f;
+        panel_wheel(&ui->panel, (float)p.x, (float)p.y, step, ([e modifierFlags] & NSEventModifierFlagShift) != 0);
+        wheel_acc -= step;
+    }
+    [self redrawIfDirty];
+}
+
+@end
+
+static int window_open(UI* ui, void* parent)
+{
+    DavidianTwinlineView* v = [[DavidianTwinlineView alloc] initWithFrame:NSMakeRect(0, 0, PANEL_W, PANEL_H)];
+    if (!v)
+        return 0;
+    v->ui = ui;
+    v->wheel_acc = 0.0f;
+    ui->view = v;
+    if (parent)
+        [(NSView*)parent addSubview:v];
+    ui->timer = [NSTimer timerWithTimeInterval:1.0 / 30.0 target:v selector:@selector(tick:)
+                                      userInfo:nil repeats:YES];
+    [[NSRunLoop currentRunLoop] addTimer:ui->timer forMode:NSRunLoopCommonModes];
+    return 1;
+}
+
+static void window_close(UI* ui)
+{
+    DavidianTwinlineView* v = (DavidianTwinlineView*)ui->view;
+    if (!v)
+        return;
+    [ui->timer invalidate]; /* releases the timer's hold on the view */
+    ui->timer = nil;
+    v->ui = NULL;
+    [v removeFromSuperview];
+    [v release];
+    ui->view = nil;
+}
+
+static void* window_widget(UI* ui) { return (void*)ui->view; }
+
+static void ui_redraw(UI* ui)
+{
+    if (ui->view)
+        [(DavidianTwinlineView*)ui->view redrawIfDirty];
+}
+
+/* The view's own timer drives redraws, so idle has nothing more to do. */
+static int window_idle(UI* ui) { ui_redraw(ui); return 0; }
+
 #else
-#    error "No window layer for this platform yet (Windows and X11 are supported)."
+#    error "No window layer for this platform (Windows, X11 and macOS are supported)."
 #endif
 
 /* ---- LV2 UI entry points ---- */

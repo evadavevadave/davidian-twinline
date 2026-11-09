@@ -1,0 +1,133 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Davidian
+# Builds and tests the plugin on Windows, macOS and Linux. Pushing a tag such as v1.0.0
+# also publishes a GitHub release with a ready-made zip for each platform.
+name: build
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF_NAME//\//-}" >> "$GITHUB_ENV"
+      - name: Build and test
+        shell: cmd
+        run: build.bat test
+      - name: Package
+        shell: cmd
+        run: build.bat dist
+      - uses: actions/upload-artifact@v5
+        with:
+          name: dist-windows-x64
+          path: build/dist/*.zip
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: screenshot-windows
+          path: build-test/ui_window.bmp
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Version
+        run: echo "VERSION=${GITHUB_REF_NAME//\//-}" >> "$GITHUB_ENV"
+      - name: Build (universal arm64 + x86_64)
+        run: make VERSION="$VERSION"
+      - name: Check architectures
+        run: |
+          lipo build/twinline.lv2/twinline.dylib -verify_arch arm64 x86_64
+          lipo build/twinline.lv2/twinline_ui.dylib -verify_arch arm64 x86_64
+          lipo -info build/twinline.lv2/*.dylib
+      - name: Ad-hoc sign
+        run: codesign --force --sign - build/twinline.lv2/*.dylib
+      - name: Offline tests
+        run: make test
+      - name: GUI test (Cocoa)
+        run: |
+          clang -O2 -x objective-c -fno-objc-arc tests/ui_check_mac.m -framework Cocoa -o build-test/ui_check_mac
+          ./build-test/ui_check_mac build/twinline.lv2 build-test/ui_window_macos.png
+      - name: Package
+        run: make dist VERSION="$VERSION"
+      - uses: actions/upload-artifact@v5
+        with:
+          name: dist-macos-universal
+          path: build/dist/*.zip
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: screenshot-macos
+          path: build-test/ui_window_macos.png
+
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22.04 keeps the glibc requirement low (2.35) so the binaries run on older distros.
+        runner: [ubuntu-22.04, ubuntu-22.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Version
+        run: echo "VERSION=${GITHUB_REF_NAME//\//-}" >> "$GITHUB_ENV"
+      - name: Install build and test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential libx11-dev xvfb xauth lilv-utils lv2-dev zip python3
+      - name: Build
+        run: make VERSION="$VERSION"
+      - name: Offline tests
+        run: make test
+      - name: GUI load test (X11 on a virtual display)
+        run: |
+          cc -O2 -std=c99 -Wall tests/ui_load_check.c -o build-test/ui_load_check -ldl
+          xvfb-run -a ./build-test/ui_load_check build/twinline.lv2
+      - name: Check the bundle with lilv
+        run: |
+          export LV2_PATH="$PWD/build"
+          lv2info urn:davidian:twinline | tee build-test/lv2info.txt
+          grep -q "Blend" build-test/lv2info.txt
+          grep -q "X11UI" build-test/lv2info.txt
+          python3 -c "import wave,struct,math; w=wave.open('build-test/in.wav','wb'); w.setnchannels(1); w.setsampwidth(2); w.setframerate(48000); w.writeframes(b''.join(struct.pack('<h',int(8000*math.sin(2*math.pi*220*i/48000))) for i in range(48000))); w.close()"
+          lv2apply -i build-test/in.wav -o build-test/out.wav urn:davidian:twinline
+          test -s build-test/out.wav
+      - name: Package
+        run: make dist VERSION="$VERSION"
+      - uses: actions/upload-artifact@v5
+        with:
+          name: dist-${{ matrix.runner == 'ubuntu-22.04-arm' && 'linux-arm64' || 'linux-x64' }}
+          path: build/dist/*.zip
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, macos, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l dist
+          gh release create "$GITHUB_REF_NAME" dist/*.zip \
+            --title "Davidian Twinline $GITHUB_REF_NAME" \
+            --notes-file docs/release-notes.md

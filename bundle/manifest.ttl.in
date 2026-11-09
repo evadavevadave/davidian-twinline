@@ -4,15 +4,16 @@
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix ui:   <http://lv2plug.in/ns/extensions/ui#> .
 
+# The build fills in the library extension (.dll, .so or .dylib) and the GUI type
+# (Windows, X11 or Cocoa) for the platform.
 <urn:davidian:twinline>
 	a lv2:Plugin ;
-	lv2:binary <twinline.dll> ;
+	lv2:binary <twinline@LIB_EXT@> ;
 	rdfs:seeAlso <twinline.ttl> ;
 	ui:ui <urn:davidian:twinline#ui> .
 
 <urn:davidian:twinline#ui>
-	a ui:WindowsUI ;
-	ui:binary <twinline_ui.dll> ;
-	lv2:requiredFeature ui:parent ;
-	lv2:optionalFeature ui:resize , ui:idleInterface ;
+	a @UI_CLASS@ ;
+	ui:binary <twinline_ui@LIB_EXT@> ;
+	lv2:optionalFeature ui:parent , ui:resize , ui:idleInterface ;
 	lv2:extensionData ui:idleInterface .

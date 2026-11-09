@@ -2,37 +2,77 @@
 
 A Davidian LV2 model of a bucket-brigade doubler, based on the circuit of a classic 1970s double-tracking pedal. The model has a BS170 boost stage, then the dry signal and a V3205 BBD delay are mixed by a Blend pot. A switch picks a short doubling delay or a longer slapback. Mono in and out, no latency on the dry path. Made with AI assistance; see [Use of AI](#use-of-ai).
 
-## Build and test on Windows
+## Download
 
-```
-build.bat
-build-test\test_host.exe build\twinline.lv2\twinline.dll
-build-test\lilv_check.exe build
-build-test\ui_check.exe build\twinline.lv2
-```
+Ready-made builds are on the [Releases](https://github.com/evadavevadave/davidian-twinline/releases) page:
 
-`build.bat` needs Visual Studio's C++ tools. Edit `VCVARS` at the top if your install is somewhere else.
-
-- `test_host.exe` loads the plugin DLL directly and checks delay times, frequency response, BBD clock images, Blend and Level, block-size independence, overload and CPU use.
-- `lilv_check.exe` checks the bundle with the lilv LV2 parser (the one most hosts use), without installing the plugin. It loads lilv and the LV2 spec files from Ardour 9, so it needs Ardour 9 installed in `C:\Program Files\Ardour9`. For another location, edit the two Ardour paths in `tests/lilv_check.c`.
-- `ui_check.exe` hosts the GUI in a window and drives it with mouse messages.
-- `ui_render.exe out.bmp` renders the panel to an image without opening a window.
+| Download | For |
+|---|---|
+| `…-windows-x64.zip` | Windows 10/11, 64-bit hosts |
+| `…-macos-universal.zip` | macOS 10.13 or later, Apple silicon and Intel |
+| `…-linux-x64.zip` | 64-bit Intel/AMD Linux (glibc 2.35 or later) |
+| `…-linux-arm64.zip` | 64-bit ARM Linux, e.g. Raspberry Pi 4/5 (glibc 2.35 or later) |
 
 ## Install
 
-Twinline is Windows-only (64-bit) for now: the bundle's metadata names `.dll` files and a Win32 GUI, and there is no Linux or macOS build.
+Unzip, then copy the whole `twinline.lv2` folder into your LV2 folder:
 
-Copy the whole `build\twinline.lv2` folder (`twinline.dll`, `twinline_ui.dll` and the two .ttl files) into one of the standard Windows LV2 folders: `%APPDATA%\LV2` (current user) or `%COMMONPROGRAMFILES%\LV2` (all users).
+| System | Per-user folder | All users |
+|---|---|---|
+| Windows | `%APPDATA%\LV2` | `%COMMONPROGRAMFILES%\LV2` |
+| macOS | `~/Library/Audio/Plug-Ins/LV2` | `/Library/Audio/Plug-Ins/LV2` |
+| Linux | `~/.lv2` | `/usr/lib/lv2` or `/usr/local/lib/lv2` |
 
-If your host doesn't scan that folder, add it to the host's LV2 search path or set the `LV2_PATH` environment variable. Close the host before copying and restart it afterwards. Replace any older copy instead of keeping two: when two bundles have the same URI, the loader uses one and ignores the other.
+Create the folder if it doesn't exist. If your host doesn't scan it, add it to the host's LV2 search path or set the `LV2_PATH` environment variable. Close the host before copying and restart it afterwards. Replace any older copy instead of keeping two: when two bundles have the same URI, the loader uses one and ignores the other.
+
+**macOS:** the plugin isn't notarized, so macOS may block files downloaded from the internet. After copying, run this once in Terminal:
+
+```bash
+xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/LV2/twinline.lv2
+```
 
 Look for **Davidian Twinline** in your host's plugin list. The plugin URI is `urn:davidian:twinline`.
+
+## Build from source
+
+The code is plain C (C99) with no dependencies beyond the system's own libraries. The LV2 interface is declared in the source, so no LV2 SDK is needed.
+
+**Linux, BSD, macOS or MinGW:**
+
+```bash
+make
+make test
+make install
+```
+
+- Linux needs a C compiler and the X11 headers (`build-essential libx11-dev` on Debian/Ubuntu).
+- macOS needs the Xcode command line tools. `make` builds a universal binary (Apple silicon and Intel).
+- `make install` copies the bundle to your per-user LV2 folder. `make dist VERSION=x.y.z` zips it with the docs.
+
+**Windows with Visual Studio** (the C++ tools; `build.bat` finds them itself):
+
+```
+build.bat
+build.bat test
+build.bat dist
+```
+
+The bundle ends up in `build/twinline.lv2`.
+
+### Tests
+
+- `test_host` loads the built plugin library directly and checks delay times, frequency response, BBD clock images, Blend and Level, block-size independence, overload and CPU use. It runs on every platform.
+- `ui_render` renders the panel to a `.bmp` file without opening a window.
+- `ui_check` (Windows) and `ui_check_mac` (macOS) host the GUI in a window and drive it with mouse input. `ui_load_check` (Linux) opens the X11 GUI, usually on a virtual display with `xvfb-run`.
+- `lilv_check` (Windows) checks the bundle with the lilv LV2 parser borrowed from Ardour 9, if Ardour 9 is installed in `C:\Program Files\Ardour9`. On Linux, CI does the same check with `lv2info` and `lv2apply`.
+
+GitHub Actions builds and tests on Windows, macOS and Linux (x64 and arm64) for every push. A `v*` tag also publishes the zips as a release.
 
 ## GUI
 
 ![GUI](docs/gui.png)
 
-The bundle includes a native GUI (`twinline_ui.dll`). Its look comes from a shared house style: `src/ui/style.h` (palette and text sizes), `font.h` (stroke font) and `canvas.h` (renderer). It draws with its own software renderer and puts the result in a Win32 window (`ui:WindowsUI`). The window layer also has X11 code, but only the Windows build has been compiled and tested.
+The bundle includes a native GUI (`twinline_ui`). Its look comes from a shared house style: `src/ui/style.h` (palette and text sizes), `font.h` (stroke font) and `canvas.h` (renderer). It draws with its own software renderer and puts the result in a native window: Win32 on Windows (`ui:WindowsUI`), X11 on Linux (`ui:X11UI`) and Cocoa on macOS (`ui:CocoaUI`).
 
 - Drag a knob up or down to turn it. Hold Shift for fine control. Double-click resets it, and the mouse wheel works too.
 - Click the upper or lower half of the Delay switch to pick Double or Slap.
@@ -100,11 +140,16 @@ The layout doesn't show these, so they are guesses. Tune them by ear:
 | `src/lv2_abi.h` | The LV2 C interface, so no SDK is needed |
 | `src/ui/panel.h` | GUI layout, drawing and mouse handling, with no platform code |
 | `src/ui/style.h`, `canvas.h`, `font.h` | House style, software renderer and stroke font |
-| `src/ui/ui_lv2.c` | LV2 UI entry points and the Win32 and X11 window layers |
-| `bundle/` | LV2 metadata |
-| `tests/test_host.c` | DSP checks on the built DLL |
-| `tests/lilv_check.c` | Checks the bundle with the lilv LV2 parser |
-| `tests/ui_check.c` | Hosts the built GUI and drives it with mouse messages |
+| `src/ui/ui_lv2.c` | LV2 UI entry points and the Win32, X11 and Cocoa window layers |
+| `bundle/` | LV2 metadata. `manifest.ttl.in` gets each platform's library names and GUI type at build time |
+| `Makefile` | Linux, BSD, macOS and MinGW build |
+| `build.bat` | Windows build with Visual Studio |
+| `.github/workflows/build.yml` | CI builds and tests, and releases on `v*` tags |
+| `tests/test_host.c` | DSP checks on the built plugin library |
+| `tests/lilv_check.c` | Checks the bundle with the lilv LV2 parser (Windows) |
+| `tests/ui_check.c` | Hosts the built GUI and drives it with mouse messages (Windows) |
+| `tests/ui_check_mac.m` | The same for the Cocoa GUI (macOS) |
+| `tests/ui_load_check.c` | Opens the X11 GUI and runs its idle loop (Linux) |
 | `tests/ui_render.c` | Renders the panel to a .bmp file |
 
 ## Use of AI
@@ -125,10 +170,13 @@ This program is free software: you can redistribute it and/or modify it under th
 
 | Component | Licence | How it's used |
 |---|---|---|
-| LV2 C interface (`lv2/core/lv2.h`, `lv2/ui/ui.h`) | ISC | Its declarations are re-stated in `src/lv2_abi.h`, the UI ABI block of `src/ui/ui_lv2.c` and three test programs, so no LV2 SDK is needed. Copyright and permission notice in [LICENSE-LV2](LICENSE-LV2). |
+| LV2 C interface (`lv2/core/lv2.h`, `lv2/ui/ui.h`) | ISC | Its declarations are re-stated in `src/lv2_abi.h`, the UI ABI block of `src/ui/ui_lv2.c` and five test programs, so no LV2 SDK is needed. Copyright and permission notice in [LICENSE-LV2](LICENSE-LV2). |
 | LV2 vocabularies (`lv2core`, `ui`, `units`) | ISC | The `.ttl` files refer to them by URI. Nothing is copied. |
 | lilv | ISC | `tests/lilv_check.c` loads the copy that ships with Ardour 9 at run time. Not included in this repository. |
 | Ardour 9 | GPL-2.0-or-later | Used only as a test host and as the source of lilv for `lilv_check`. No Ardour code is included. |
 | Microsoft C runtime | Visual Studio licence | `build.bat` links it statically (`/MT`) into the DLLs you build. It counts as a system library under the GPL, so this is allowed. No binaries are committed to this repository. |
+| Xlib (Linux) | MIT/X11 | The Linux GUI links to the system's `libX11` at run time. Not included. |
+| macOS frameworks (Cocoa, Core Graphics) | Apple SDK licence | The macOS GUI links to the system frameworks at run time. They are system libraries under the GPL. Not included. |
+| GitHub Actions | GitHub terms | Builds the release zips. Nothing from it ends up in the binaries. |
 
 Every source file starts with an SPDX licence line saying which of these applies.
