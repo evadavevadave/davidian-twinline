@@ -1,41 +1,51 @@
 # Davidian Twinline
 
-A Davidian LV2 model of a bucket-brigade doubler, based on the circuit of a classic 1970s double-tracking pedal. The model has a BS170 boost stage, then the dry signal and a V3205 BBD delay are mixed by a Blend pot. A switch picks a short doubling delay or a longer slapback. Mono in and out, no latency on the dry path. Made with AI assistance; see [Use of AI](#use-of-ai).
+A Davidian model of a bucket-brigade doubler, based on the circuit of a classic 1970s double-tracking pedal. The model has a BS170 boost stage, then the dry signal and a V3205 BBD delay are mixed by a Blend pot. A switch picks a short doubling delay or a longer slapback. No latency on the dry path. Made with AI assistance; see [Use of AI](#use-of-ai).
+
+It comes in three plugin formats, all with the same sound:
+
+| Format | Systems | Channels | GUI |
+|---|---|---|---|
+| LV2 | Windows, macOS, Linux | Mono in, mono out, like the pedal | Yes |
+| VST3 | Windows, macOS, Linux | Mono or stereo. Stereo runs two copies of the pedal with the same settings | Windows and macOS. On Linux the host shows its own controls |
+| Audio Unit (AUv2) | macOS | 1 in/1 out, 1 in/2 out or 2 in/2 out, as VST3 | Yes |
 
 ## Download
 
-Ready-made builds are on the [Releases](https://github.com/evadavevadave/davidian-twinline/releases) page:
+Ready-made builds are on the [Releases](https://github.com/evadavevadave/davidian-twinline/releases) page. Each zip holds every format for that system:
 
-| Download | For |
-|---|---|
-| `…-windows-x64.zip` | Windows 10/11, 64-bit hosts |
-| `…-macos-universal.zip` | macOS 10.13 or later, Apple silicon and Intel |
-| `…-linux-x64.zip` | 64-bit Intel/AMD Linux (glibc 2.35 or later) |
-| `…-linux-arm64.zip` | 64-bit ARM Linux, e.g. Raspberry Pi 4/5 (glibc 2.35 or later) |
+| Download | For | Formats |
+|---|---|---|
+| `…-windows-x64.zip` | Windows 10/11, 64-bit hosts | LV2, VST3 |
+| `…-macos-universal.zip` | macOS 10.13 or later, Apple silicon and Intel | LV2, VST3, AU |
+| `…-linux-x64.zip` | 64-bit Intel/AMD Linux (glibc 2.35 or later) | LV2, VST3 |
+| `…-linux-arm64.zip` | 64-bit ARM Linux, e.g. Raspberry Pi 4/5 (glibc 2.35 or later) | LV2, VST3 |
 
 ## Install
 
-Unzip, then copy the whole `twinline.lv2` folder into your LV2 folder:
+Unzip, then copy the format your host uses into its plugin folder. Create the folder if it doesn't exist.
 
-| System | Per-user folder | All users |
-|---|---|---|
-| Windows | `%APPDATA%\LV2` | `%COMMONPROGRAMFILES%\LV2` |
-| macOS | `~/Library/Audio/Plug-Ins/LV2` | `/Library/Audio/Plug-Ins/LV2` |
-| Linux | `~/.lv2` | `/usr/lib/lv2` or `/usr/local/lib/lv2` |
+| Format | Windows | macOS | Linux |
+|---|---|---|---|
+| LV2: `twinline.lv2` | `%APPDATA%\LV2` | `~/Library/Audio/Plug-Ins/LV2` | `~/.lv2` |
+| VST3: `twinline.vst3` | `%COMMONPROGRAMFILES%\VST3` | `~/Library/Audio/Plug-Ins/VST3` | `~/.vst3` |
+| AU: `twinline.component` | | `~/Library/Audio/Plug-Ins/Components` | |
 
-Create the folder if it doesn't exist. If your host doesn't scan it, add it to the host's LV2 search path or set the `LV2_PATH` environment variable. Close the host before copying and restart it afterwards. Replace any older copy instead of keeping two: when two bundles have the same URI, the loader uses one and ignores the other.
+Copy the whole `.lv2`, `.vst3` or `.component` folder. Close the host before copying and restart it afterwards, then rescan plugins if your host asks. Replace an older copy instead of keeping two.
 
-**macOS:** the plugin isn't notarized, so macOS may block files downloaded from the internet. After copying, run this once in Terminal:
+**macOS:** the plugins aren't notarized, so macOS may block files downloaded from the internet. After copying, run this once in Terminal for each format you installed:
 
 ```bash
 xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/LV2/twinline.lv2
+xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/twinline.vst3
+xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/twinline.component
 ```
 
-Look for **Davidian Twinline** in your host's plugin list. The plugin URI is `urn:davidian:twinline`.
+Look for **Davidian Twinline** (vendor Davidian) in your host's plugin list; Logic lists the Audio Unit as **Davidian: Twinline**. The LV2 URI is `urn:davidian:twinline` and the Audio Unit is `aufx Twln Dvdn`.
 
 ## Build from source
 
-The code is plain C (C99) with no dependencies beyond the system's own libraries. The LV2 interface is declared in the source, so no LV2 SDK is needed.
+Plain C, with no dependencies beyond the system's own libraries. The LV2 interface is declared in the source and the VST3 interface comes from Steinberg's C header (`src/vst3/vst3_c_api.h`), so no LV2 or VST3 SDK is needed. The Audio Unit uses only Apple's system frameworks.
 
 **Linux, BSD, macOS or MinGW:**
 
@@ -46,8 +56,8 @@ make install
 ```
 
 - Linux needs a C compiler and the X11 headers (`build-essential libx11-dev` on Debian/Ubuntu).
-- macOS needs the Xcode command line tools. `make` builds a universal binary (Apple silicon and Intel).
-- `make install` copies the bundle to your per-user LV2 folder. `make dist VERSION=x.y.z` zips it with the docs.
+- macOS needs the Xcode command line tools. `make` builds universal binaries (Apple silicon and Intel), including the Audio Unit.
+- `make install` copies the bundles to your per-user plugin folders. `make dist VERSION=x.y.z` zips them with the docs.
 
 **Windows with Visual Studio** (the C++ tools; `build.bat` finds them itself):
 
@@ -57,22 +67,24 @@ build.bat test
 build.bat dist
 ```
 
-The bundle ends up in `build/twinline.lv2`.
+The bundles end up in `build/lv2/twinline.lv2`, `build/vst3/twinline.vst3` and, on macOS, `build/au/twinline.component`.
 
 ### Tests
 
-- `test_host` loads the built plugin library directly and checks delay times, frequency response, BBD clock images, Blend and Level, block-size independence, overload and CPU use. It runs on every platform.
+- `test_host` loads the built LV2 plugin library directly and checks delay times, frequency response, BBD clock images, Blend and Level, block-size independence, overload and CPU use. It runs on every platform. The VST3 and AU versions run the same DSP code.
 - `ui_render` renders the panel to a `.bmp` file without opening a window.
-- `ui_check` (Windows) and `ui_check_mac` (macOS) host the GUI in a window and drive it with mouse input. `ui_load_check` (Linux) opens the X11 GUI, usually on a virtual display with `xvfb-run`.
-- `lilv_check` (Windows) checks the bundle with the lilv LV2 parser borrowed from Ardour 9, if Ardour 9 is installed in `C:\Program Files\Ardour9`. On Linux, CI does the same check with `lv2info` and `lv2apply`.
+- `ui_check` (Windows) and `ui_check_mac` (macOS) host the LV2 GUI in a window and drive it with mouse input. `ui_load_check` (Linux) opens the X11 GUI, usually on a virtual display with `xvfb-run`.
+- `vst3_check` loads the VST3 the way a host does and checks its factory, buses, parameters, audio, bypass and saved state, on every platform. On Windows it also opens the editor, drives it with the mouse and checks that every edit reaches the host inside a gesture.
+- `au_check_mac` (macOS) opens the installed Audio Unit, renders audio, checks bypass and saved state, and drives its Cocoa view.
+- `lilv_check` (Windows) checks the LV2 bundle with the lilv LV2 parser borrowed from Ardour 9, if Ardour 9 is installed in `C:\Program Files\Ardour9`. On Linux, CI does the same check with `lv2info` and `lv2apply`.
 
-GitHub Actions builds and tests on Windows, macOS and Linux (x64 and arm64) for every push. A `v*` tag also publishes the zips as a release.
+GitHub Actions builds every format on Windows, macOS and Linux (x64 and arm64) for every push, and runs Steinberg's VST3 validator and Apple's `auval` on the results. A `v*` tag also publishes the zips as a release.
 
 ## GUI
 
 ![GUI](docs/gui.png)
 
-The bundle includes a native GUI (`twinline_ui`). Its look comes from a shared house style: `src/ui/style.h` (palette and text sizes), `font.h` (stroke font) and `canvas.h` (renderer). It draws with its own software renderer and puts the result in a native window: Win32 on Windows (`ui:WindowsUI`), X11 on Linux (`ui:X11UI`) and Cocoa on macOS (`ui:CocoaUI`).
+The LV2, VST3 and Audio Unit versions share one native GUI. Its look comes from a shared house style: `src/ui/style.h` (palette and text sizes), `font.h` (stroke font) and `canvas.h` (renderer). It draws with its own software renderer and puts the result in a native window: Win32 on Windows, X11 on Linux (LV2) and Cocoa on macOS. The window code is in `src/ui/window.h`. The Linux VST3 has no GUI yet, so hosts show their own controls for its parameters.
 
 - Drag a knob up or down to turn it. Hold Shift for fine control. Double-click resets it, and the mouse wheel works too.
 - Click the upper or lower half of the Delay switch to pick Double or Slap.
@@ -89,7 +101,9 @@ The panel name, Twinline, is original. The panel uses none of the original unit'
 | Blend | 0–1 (dry to wet) | 0.75 | A10K pot. Audio taper, about 10% wet at noon |
 | Delay | Double / Slap | Double | SPST delay switch on the CD4047 clock |
 | Footswitch | on/off | on | The pedal's bypass switch. Off passes the input through untouched |
-| Enabled | on/off | on | Host bypass (`lv2:enabled`), so the host's bypass button works |
+| Enabled / Bypass | on/off | not bypassed | Host bypass, so the host's bypass button works: `lv2:enabled` in LV2, the bypass parameter in VST3, and the bypass property (plus an Enabled parameter) in the Audio Unit |
+
+The GUI has no control for the host bypass: the host's own bypass button covers it. In VST3 and AU every control is a parameter the host can automate, with the same numbers as the LV2 ports, and the GUI follows automation as it plays. Dragging a knob is recorded as one gesture.
 
 Both bypasses fade over about 10 ms. The circuit keeps running while bypassed, so switching back in doesn't click. Flipping the Delay switch while a note is sounding bends its pitch, as changing the clock does on the real pedal.
 
@@ -119,7 +133,7 @@ Measured from the built plugin, the onset of a burst arrives after 32.8 ms (Doub
 
 The layout doesn't show these, so they are guesses. Tune them by ear:
 
-- **Boost range and clipping:** 0 to +20 dB, with the boost limiting around +8 dBFS. This assumes 0 dBFS = 1 V. Constants are at the top of `src/twinline.c`.
+- **Boost range and clipping:** 0 to +20 dB, with the boost limiting around +8 dBFS. This assumes 0 dBFS = 1 V. Constants are at the top of `src/dsp.h`.
 - **BBD headroom:** a soft limit at about 1.2 V.
 - **Wet high-pass:** 100 Hz.
 - **Blend direction:** clockwise is assumed to be more wet.
@@ -135,30 +149,41 @@ The layout doesn't show these, so they are guesses. Tune them by ear:
 
 | File | Contents |
 |---|---|
-| `src/twinline.c` | DSP and LV2 entry points |
-| `src/ports.h` | Port numbers shared by the plugin and the GUI |
+| `src/dsp.h` | The DSP model (the mono pedal), shared by every format |
+| `src/engine.h` | One or two copies of the pedal for the VST3 and AU versions (mono or stereo) |
+| `src/twinline.c` | LV2 entry points |
+| `src/vst3/vst3.c` | VST3 plugin in C: processor, controller, state and editor in one object |
+| `src/vst3/vst3_c_api.h` | Steinberg's C header for the VST3 interfaces, unchanged, with its licence in `src/vst3/LICENSE.txt` |
+| `src/au/au.m` | Audio Unit (AUv2) in C and Objective-C against Apple's AudioToolbox, with its Cocoa view |
+| `src/ports.h` | Port numbers shared by the plugin, the GUI and the VST3/AU parameter IDs |
+| `src/params.h` | Parameter names, ranges, defaults and switch positions for VST3 and AU |
 | `src/lv2_abi.h` | The LV2 C interface, so no SDK is needed |
 | `src/ui/panel.h` | GUI layout, drawing and mouse handling, with no platform code |
 | `src/ui/style.h`, `canvas.h`, `font.h` | House style, software renderer and stroke font |
-| `src/ui/ui_lv2.c` | LV2 UI entry points and the Win32, X11 and Cocoa window layers |
-| `bundle/` | LV2 metadata. `manifest.ttl.in` gets each platform's library names and GUI type at build time |
-| `Makefile` | Linux, BSD, macOS and MinGW build |
-| `build.bat` | Windows build with Visual Studio |
-| `.github/workflows/build.yml` | CI builds and tests, and releases on `v*` tags |
+| `src/ui/window.h` | Win32, X11 and Cocoa window layers |
+| `src/ui/ui_lv2.c` | LV2 UI entry points |
+| `bundle/` | LV2 metadata (`manifest.ttl.in` gets each platform's library names and GUI type at build time), and the macOS property lists for the VST3 and AU bundles |
+| `Makefile` | LV2, VST3 and AU build for Linux, BSD, macOS and MinGW |
+| `build.bat` | LV2 and VST3 build for Windows with Visual Studio |
+| `.github/workflows/build.yml` | CI builds, tests and validators, and releases on `v*` tags |
 | `tests/test_host.c` | DSP checks on the built plugin library |
+| `tests/vst3_check.c` | Hosts the VST3: factory, parameters, audio, bypass, state, and the editor on Windows |
+| `tests/au_check_mac.m` | Hosts the Audio Unit: audio, bypass, state and the Cocoa view (macOS) |
 | `tests/lilv_check.c` | Checks the bundle with the lilv LV2 parser (Windows) |
 | `tests/ui_check.c` | Hosts the built GUI and drives it with mouse messages (Windows) |
 | `tests/ui_check_mac.m` | The same for the Cocoa GUI (macOS) |
 | `tests/ui_load_check.c` | Opens the X11 GUI and runs its idle loop (Linux) |
 | `tests/ui_render.c` | Renders the panel to a .bmp file |
 
+The VST3 and AU wrappers follow the ones in Davidian Seventy-Three, adapted to this pedal.
+
 ## Use of AI
 
-This project was made with AI assistance. The code, tests, LV2 metadata and this README were written by Claude (Anthropic's Claude Opus 5.5, through Claude Code), directed and reviewed by the author.
+This project was made with AI assistance. The code, tests, plugin metadata, build scripts and this README were written by Claude (Anthropic's Claude Opus 5.5, through Claude Code), directed and reviewed by the author.
 
 - **The author** supplied the circuit layout, the GUI house style, the names and the licensing choices. They also decided what to build and changed parts of the result themselves.
-- **The AI** read component values off the layout image and worked out the clock rates and filter corners. It also wrote the DSP model, adapted the GUI to this panel, and wrote the test programs and documentation.
-- **Checking:** the results are checked by the automated tests described above (delay times, frequency response, Ardour's LV2 parser, and the GUI driven by simulated mouse input). The values listed under [Estimates](#estimates) are the AI's guesses and haven't been checked against a real pedal.
+- **The AI** read component values off the layout image and worked out the clock rates and filter corners. It also wrote the DSP model, adapted the GUI to this panel, adapted the VST3 and Audio Unit wrappers and the cross-platform builds, and wrote the test programs and documentation.
+- **Checking:** the results are checked by the automated tests described above (delay times, frequency response, Ardour's LV2 parser, the GUIs driven by simulated mouse input, the VST3 and AU test hosts) and by Steinberg's VST3 validator and Apple's auval. The values listed under [Estimates](#estimates) are the AI's guesses and haven't been checked against a real pedal.
 
 ## License
 
@@ -177,6 +202,11 @@ This program is free software: you can redistribute it and/or modify it under th
 | Microsoft C runtime | Visual Studio licence | `build.bat` links it statically (`/MT`) into the DLLs you build. It counts as a system library under the GPL, so this is allowed. No binaries are committed to this repository. |
 | Xlib (Linux) | MIT/X11 | The Linux GUI links to the system's `libX11` at run time. Not included. |
 | macOS frameworks (Cocoa, Core Graphics) | Apple SDK licence | The macOS GUI links to the system frameworks at run time. They are system libraries under the GPL. Not included. |
+| VST3 C API header (`src/vst3/vst3_c_api.h`) | BSD 3-clause | Steinberg's machine-generated C version of the VST3 interfaces, from [vst3_c_api](https://github.com/steinbergmedia/vst3_c_api), included unchanged. It declares the interfaces and contains no SDK code. Copyright (c) 2025 Steinberg Media Technologies GmbH; licence in [src/vst3/LICENSE.txt](src/vst3/LICENSE.txt), shipped as `LICENSE-VST3.txt` in every release zip and inside the VST3 bundle. Compatible with the GPL. |
+| Apple frameworks (AudioToolbox, AudioUnit, CoreAudio) | Apple SDK licence | The Audio Unit links to them at run time. They are system libraries under the GPL. Not included. |
+| Steinberg VST3 validator, Apple auval | MIT, Apple | Used in CI to check the builds. Nothing from them ends up in the binaries. |
 | GitHub Actions | GitHub terms | Builds the release zips. Nothing from it ends up in the binaries. |
 
-Every source file starts with an SPDX licence line saying which of these applies.
+Every source file starts with an SPDX licence line saying which licence applies to it.
+
+VST is a registered trademark of Steinberg Media Technologies GmbH. Audio Units is a trademark of Apple Inc. They are named here only to say which plugin formats this project supports.
